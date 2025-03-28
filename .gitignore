@@ -1,0 +1,9 @@
+# 忽略 Visual Studio 設定資料夾
+.vs/
+
+# 忽略中間檔案
+obj/
+
+# 忽略 Debug 建置輸出資料夾
+bin/Debug/
+bin/x64/Debug/
