@@ -36,7 +36,7 @@
 
 - **Operating System:** Windows  
 - **Microsoft Office:** Excel must be installed  
-- **.NET Framework:** 4.0 or later  
+- **.NET Framework:** 4.8.1 or later
 - **Platform Target:** Ensure the build configuration (x86, x64, or AnyCPU) matches your installed Office version
 
 ---

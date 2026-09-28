@@ -186,33 +186,107 @@ namespace ExcelFocusTool
         /// </summary>
         private string CheckExcelFileFocus(Excel.Application excelApp, string filePath)
         {
+            Excel.Workbooks workbooks = null;
             Excel.Workbook workbook = null;
+            Excel.Sheets worksheets = null;
             try
             {
                 // 只讀方式開啟
-                workbook = excelApp.Workbooks.Open(filePath, ReadOnly: true);
+                workbooks = excelApp.Workbooks;
+                workbook = workbooks.Open(filePath, ReadOnly: true);
+                worksheets = workbook.Worksheets;
+
+                if (worksheets.Count == 0)
+                {
+                    return "Error: Workbook contains no worksheets.";
+                }
 
                 // 檢查當前活頁簿的「活動工作表」是否是第一張
-                Excel.Worksheet activeSheet = (Excel.Worksheet)workbook.ActiveSheet;
-                Excel.Worksheet firstSheet = (Excel.Worksheet)workbook.Sheets[1];
-
-                if (activeSheet.Index != firstSheet.Index)
+                int activeSheetIndex;
+                string activeSheetName;
+                Excel.Worksheet activeSheet = null;
+                try
                 {
-                    return $"Active Sheet is '{activeSheet.Name}', not the first Sheet '{firstSheet.Name}'";
+                    activeSheet = workbook.ActiveSheet as Excel.Worksheet;
+                    if (activeSheet == null)
+                    {
+                        return "Active sheet is not a worksheet.";
+                    }
+
+                    activeSheetIndex = activeSheet.Index;
+                    activeSheetName = activeSheet.Name;
+                }
+                finally
+                {
+                    if (activeSheet != null)
+                    {
+                        Marshal.ReleaseComObject(activeSheet);
+                    }
+                }
+
+                int firstSheetIndex;
+                string firstSheetName;
+                Excel.Worksheet firstSheet = null;
+                try
+                {
+                    firstSheet = (Excel.Worksheet)worksheets[1];
+                    firstSheetIndex = firstSheet.Index;
+                    firstSheetName = firstSheet.Name;
+                }
+                finally
+                {
+                    if (firstSheet != null)
+                    {
+                        Marshal.ReleaseComObject(firstSheet);
+                    }
+                }
+
+                if (activeSheetIndex != firstSheetIndex)
+                {
+                    return $"Active Sheet is '{activeSheetName}', not the first Sheet '{firstSheetName}'";
                 }
 
                 // 檢查所有工作表的焦點 & 滾動位置
-                foreach (Excel.Worksheet worksheet in workbook.Sheets)
+                for (int i = 1; i <= worksheets.Count; i++)
                 {
-                    int scrollRow = worksheet.Application.ActiveWindow.ScrollRow;
-                    int scrollColumn = worksheet.Application.ActiveWindow.ScrollColumn;
-                    Excel.Range activeCell = worksheet.Application.ActiveCell;
-
-                    // 確認是否都是在 A1、並且滾動條在最上方/最左方
-                    if (!(activeCell.Row == 1 && activeCell.Column == 1
-                          && scrollRow == 1 && scrollColumn == 1))
+                    Excel.Worksheet worksheet = null;
+                    Excel.Window activeWindow = null;
+                    Excel.Range activeCell = null;
+                    try
                     {
-                        return $"Sheet '{worksheet.Name}' focus => {GetCellAddress(activeCell.Row, activeCell.Column)} | ScrollRow: {scrollRow}, ScrollColumn: {scrollColumn}";
+                        worksheet = (Excel.Worksheet)worksheets[i];
+
+                        // ActiveCell 和 ActiveWindow 都屬於當前工作表，必須先激活再檢查。
+                        worksheet.Activate();
+                        activeWindow = excelApp.ActiveWindow;
+                        activeCell = excelApp.ActiveCell;
+
+                        int scrollRow = activeWindow.ScrollRow;
+                        int scrollColumn = activeWindow.ScrollColumn;
+                        int activeRow = activeCell.Row;
+                        int activeColumn = activeCell.Column;
+
+                        // 確認每張工作表都是在 A1，並且滾動條在最上方/最左方。
+                        if (!(activeRow == 1 && activeColumn == 1
+                              && scrollRow == 1 && scrollColumn == 1))
+                        {
+                            return $"Sheet '{worksheet.Name}' focus => {GetCellAddress(activeRow, activeColumn)} | ScrollRow: {scrollRow}, ScrollColumn: {scrollColumn}";
+                        }
+                    }
+                    finally
+                    {
+                        if (activeCell != null)
+                        {
+                            Marshal.ReleaseComObject(activeCell);
+                        }
+                        if (activeWindow != null)
+                        {
+                            Marshal.ReleaseComObject(activeWindow);
+                        }
+                        if (worksheet != null)
+                        {
+                            Marshal.ReleaseComObject(worksheet);
+                        }
                     }
                 }
 
@@ -230,6 +304,14 @@ namespace ExcelFocusTool
                     workbook.Close(false);
                     Marshal.ReleaseComObject(workbook);
                 }
+                if (worksheets != null)
+                {
+                    Marshal.ReleaseComObject(worksheets);
+                }
+                if (workbooks != null)
+                {
+                    Marshal.ReleaseComObject(workbooks);
+                }
             }
         }
 
@@ -238,23 +320,60 @@ namespace ExcelFocusTool
         /// </summary>
         private void FixExcelFile(Excel.Application excelApp, string filePath)
         {
+            Excel.Workbooks workbooks = null;
             Excel.Workbook workbook = null;
+            Excel.Sheets worksheets = null;
+            Excel.Worksheet firstSheet = null;
             try
             {
-                workbook = excelApp.Workbooks.Open(filePath);
-                Excel.Worksheet firstSheet = (Excel.Worksheet)workbook.Sheets[1];
+                workbooks = excelApp.Workbooks;
+                workbook = workbooks.Open(filePath);
+                worksheets = workbook.Worksheets;
 
                 // 逐張工作表處理
-                foreach (Excel.Worksheet worksheet in workbook.Sheets)
+                for (int i = 1; i <= worksheets.Count; i++)
                 {
-                    worksheet.Activate();
-                    // Goto(Cells[1,1]) = 移動焦點到 A1
-                    worksheet.Application.Goto(worksheet.Cells[1, 1], true);
-                    worksheet.Application.ActiveWindow.ScrollRow = 1;
-                    worksheet.Application.ActiveWindow.ScrollColumn = 1;
+                    Excel.Worksheet worksheet = null;
+                    Excel.Range cells = null;
+                    Excel.Range targetCell = null;
+                    Excel.Window activeWindow = null;
+                    try
+                    {
+                        worksheet = (Excel.Worksheet)worksheets[i];
+                        worksheet.Activate();
+
+                        // Goto(Cells[1,1]) = 移動焦點到 A1
+                        cells = worksheet.Cells;
+                        targetCell = (Excel.Range)cells[1, 1];
+                        excelApp.Goto(targetCell, true);
+
+                        activeWindow = excelApp.ActiveWindow;
+                        activeWindow.ScrollRow = 1;
+                        activeWindow.ScrollColumn = 1;
+                    }
+                    finally
+                    {
+                        if (activeWindow != null)
+                        {
+                            Marshal.ReleaseComObject(activeWindow);
+                        }
+                        if (targetCell != null)
+                        {
+                            Marshal.ReleaseComObject(targetCell);
+                        }
+                        if (cells != null)
+                        {
+                            Marshal.ReleaseComObject(cells);
+                        }
+                        if (worksheet != null)
+                        {
+                            Marshal.ReleaseComObject(worksheet);
+                        }
+                    }
                 }
 
                 // 最後再把第一張表設為 Active
+                firstSheet = (Excel.Worksheet)worksheets[1];
                 firstSheet.Activate();
 
                 // 存檔
@@ -267,10 +386,22 @@ namespace ExcelFocusTool
             }
             finally
             {
+                if (firstSheet != null)
+                {
+                    Marshal.ReleaseComObject(firstSheet);
+                }
                 if (workbook != null)
                 {
                     workbook.Close(false);
                     Marshal.ReleaseComObject(workbook);
+                }
+                if (worksheets != null)
+                {
+                    Marshal.ReleaseComObject(worksheets);
+                }
+                if (workbooks != null)
+                {
+                    Marshal.ReleaseComObject(workbooks);
                 }
             }
         }
